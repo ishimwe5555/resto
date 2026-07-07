@@ -33,11 +33,17 @@ final class ItemsTest extends TestCase
 
         $response = Utils::httpPost("http://" . $userHasItemRight . ":dummy@localhost:5252/collections/" . $collectionName . "/items", json_encode($itemDefaultVisibility));
         $decoded = json_decode($response);
-        $this->assertSame($decoded->ErrorMessage, "insertFeatures - You are not allowed to set the visibility of the default group", $response);
+        $this->assertSame($decoded->status, "success", $response);
 
         $response = Utils::httpPost("http://" . $userWithoutRights . ":dummy@localhost:5252/collections/" . $collectionName . "/items", json_encode($itemNoVisibility));
         $decoded = json_decode($response);
         $this->assertSame($decoded->ErrorCode, 404, $response);
+
+        //set unknonw group to item visibility
+        $itemUnknownVisibility = Utils::item(uniqid("newitem"), ['Unknown']);
+        $response = Utils::httpPost("http://" . $userHasItemRight . ":dummy@localhost:5252/collections/" . $collectionName . "/items", json_encode($itemUnknownVisibility));
+        $decoded = json_decode($response);
+        $this->assertSame($decoded->ErrorMessage, "prepareFeatureArray - Visibility is set but either emtpy or referencing an unknown group", $response);
 
         //add item to catalog
         $catalogName = uniqid("newcatalog");
@@ -76,7 +82,7 @@ final class ItemsTest extends TestCase
         $itemNoVisibility = Utils::item(uniqid("newitemnovisibility"), []);
         $utils->createItemAPI($userHasItemRight, $collectionName, $itemNoVisibility);
 
-        $itemNoVisibility['description'] = "updated description";
+        $itemNoVisibility['properties']['description'] = "updated description";
 
         $response = Utils::httpPut("http://" . $userWithoutRights . ":dummy@localhost:5252/collections/" . $collectionName . "/items/" . $itemNoVisibility['id'], json_encode($itemNoVisibility));
         $decoded = json_decode($response);
@@ -86,14 +92,21 @@ final class ItemsTest extends TestCase
         $decoded = json_decode($response);
         $this->assertSame($decoded->status, "success", $response);
 
-        //TODO do we care for item public visibility given it is in a collection or catalog
-        // $itemNoVisibility['properties']+= ['visibility' => ['default']];
-        // print_r(json_encode($itemNoVisibility));
-        //  $response = Utils::httpPut("http://" . $userHasItemRight . ":dummy@localhost:5252/collections/" . $collectionName . "/items/" . $itemNoVisibility['id'] , json_encode($itemNoVisibility));
-        // $decoded = json_decode($response);
-        // $this->assertSame($decoded->ErrorCode, "403", $response);
-    }
+        $response = Utils::httpGet("http://" . $userHasItemRight . ":" . "dummy@localhost:5252/collections/" . $collectionName . "/items/" . $itemNoVisibility['id']);
+        $decoded = json_decode($response);
+        $this->assertSame($decoded->properties->description, $itemNoVisibility['properties']['description'], $response);
 
+        //set itemNoVisibility with default visibility
+        $itemDefaultVisibility = $itemNoVisibility;
+        $defaultVisibility = ["visibility" => ['default']];
+        $response = Utils::httpPut("http://" . $userHasItemRight . ":dummy@localhost:5252/collections/" . $collectionName . "/items/" . $itemDefaultVisibility['id'] . "/properties", json_encode($defaultVisibility));
+        $decoded = json_decode($response);
+        $this->assertSame($decoded->status, "success", $response);
+
+        $response = Utils::httpGet("http://" . $userHasItemRight . ":dummy@localhost:5252/collections/" . $collectionName . "/items/" . $itemDefaultVisibility['id']);
+        $decoded = json_decode($response);
+        $this->assertSame(["default"], $decoded->properties->visibility, json_encode($decoded->properties->visibility));
+    }
 
     public function testCanDeleteItem(): void
     {
@@ -119,5 +132,9 @@ final class ItemsTest extends TestCase
         $response = Utils::httpDelete("http://" . $userHasItemRight . ":dummy@localhost:5252/collections/" . $collectionName . "/items/" . $itemNoVisibility['id']);
         $decoded = json_decode($response);
         $this->assertSame($decoded->status, "success", $response);
+
+        $response = Utils::httpGet("http://" . $userHasItemRight . ":" . "dummy@localhost:5252/collections/" . $collectionName . "/items/" . $itemNoVisibility['id']);
+        $decoded = json_decode($response);
+        $this->assertSame($decoded->ErrorCode, 404, $response);
     }
 }

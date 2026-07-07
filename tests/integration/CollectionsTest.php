@@ -24,13 +24,14 @@ final class CollectionsTest extends TestCase
 
         $response = Utils::httpPost("http://" . $userHasCollectionRight . ":dummy@localhost:5252/collections", json_encode($collectionDefaultVisibility));
         $decoded = json_decode($response);
-        $this->assertSame($decoded->ErrorMessage, "cleanJSON - You are not allowed to set the visibility of the default group", $response);
+        $this->assertSame($decoded->ErrorMessage, "cleanJSON - You are not allowed to change the visibility of this collection to default", $response);
 
         $response = Utils::httpPost("http://" . $userWithoutRights . ":dummy@localhost:5252/collections", json_encode($collectionNoVisibility));
         $decoded = json_decode($response);
         $this->assertSame($decoded->ErrorMessage, "createCollection - Forbidden", $response);
     }
 
+    #[Group('only')]
     public function testCanUpdateCollection(): void
     {
         $utils = new Utils();
@@ -56,6 +57,8 @@ final class CollectionsTest extends TestCase
         $decoded = json_decode($response);
         $this->assertSame($decoded->description, $collectionNoVisibility['description'], $response);
         $this->assertSame($decoded->title, $collectionNoVisibility['title'], $response);
+        $this->assertSame($decoded->visibility, [$userHasCollectionRight . "_private"], $response);
+
 
         $collectionNoVisibility['description'] = "unauthorized updated description";
         $collectionNoVisibility['title'] = uniqid('unauthorized new title');

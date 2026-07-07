@@ -66,6 +66,41 @@ class ServicesAPI
      *      )
      *    )
      */
+    public function apiDoc()
+    {
+        $this->context->outputFormat = 'html';
+        header('HTTP/1.1 200 OK');
+        header('Content-Type: ' . RestoUtil::$contentTypes['html']);
+        echo '<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Welcome to resto</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js" crossorigin></script>
+  <script>
+    window.onload = function () {
+      SwaggerUIBundle({
+        url: "../api",
+        dom_id: "#swagger-ui",
+        presets: [
+          SwaggerUIBundle.presets.apis,
+          SwaggerUIBundle.SwaggerUIStandalonePreset
+        ],
+        layout: "BaseLayout",
+        deepLinking: true
+      });
+    };
+  </script>
+</body>
+</html>';
+        return null;
+    }
+
     public function api()
     {
         try {
@@ -260,44 +295,6 @@ class ServicesAPI
             ),
             'conformsTo' => $this->conformsTo()
         );
-
-        // Add pinned catalogs
-        $catalogsFunctions = new CatalogsFunctions($this->context->dbDriver);
-        $catalogs = $catalogsFunctions->getCatalogs(array(
-            'where' => 'pinned IS TRUE',
-            'countCatalogs' => false,
-            'noProperties' => true
-        ), false);
-
-        for ($i = 0, $ii = count($catalogs); $i < $ii; $i++) {
-
-            if ( $catalogs[$i]['visibility'] ) {
-                if ( !$catalogsFunctions->canSeeCatalog($catalogs[$i]['visibility'], $this->user) ) {
-                    continue;
-                }
-            }
-            
-            $link = array(
-                'id' => $catalogs[$i]['id'],
-                'rel' => 'child',
-                'type' => RestoUtil::$contentTypes['json'],
-                'href' => $this->context->core['baseUrl'] . ( str_starts_with($catalogs[$i]['id'], 'collections/') ? '/' : '/catalogs/') . join('/', array_map('rawurlencode', explode('/', $catalogs[$i]['id'])))
-            );
-            if ( $catalogs[$i]['counters']['total'] > 0 ) {
-                $link['matched'] = $catalogs[$i]['counters']['total'];
-            }
-            if ( isset($catalogs[$i]['title']) ) {
-                $link['title'] = $catalogs[$i]['title'];
-            }
-            if ( isset($catalogs[$i]['description']) ) {
-                $link['description'] = $catalogs[$i]['description'];
-            }
-            if ( isset($catalogs[$i]['rtype']) ) {
-                $link['resto:type'] = $catalogs[$i]['rtype'];
-            }
-            $hello['links'][] = $link;
-            
-        }
 
         return $this->context->core['useJSONLD'] ? JSONLDUtil::addDataCatalogMetadata($hello) : $hello;
     }

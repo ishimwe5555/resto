@@ -7,6 +7,44 @@ use PHPUnit\Framework\Attributes\Group;
 
 final class CatalogsTest extends TestCase
 {
+    public function testCanSeeCatalogs(): void
+    {
+        //Create  catalog with group right
+        $utils = new Utils();
+        $userHasCatalogRight = uniqid("userwithcatalogright");
+        $utils->createAPIUser($userHasCatalogRight);
+        $userWithoutRights = uniqid("userwithoutrights");
+        $utils->createAPIUser($userWithoutRights);
+        $createCatalogRight = ["createCatalog" => true];
+        $utils->adminAddRightsToUserAPI($userHasCatalogRight, $createCatalogRight);
+        $catalog = Utils::catalog(uniqid("newcatalog"), []);
+
+        $utils->createCatalogAPI($userHasCatalogRight, $catalog);
+        $response = Utils::httpGet("http://" . $userHasCatalogRight . ":dummy@localhost:5252/catalogs/projects/");
+        $decoded = json_decode($response);
+        $catalog_found = null;
+        for ($i = 1, $ii = count($decoded->links); $i < $ii; $i++) {
+            if (isset($decoded->links[$i]->title) && $decoded->links[$i]->title === $catalog['title']) {
+                $catalog_found = $decoded->links[$i];
+                break;
+            }
+        }
+
+        $this->assertSame($catalog_found->title, $catalog['title'], $response);
+        $response = Utils::httpGet("http://localhost:5252/catalogs/projects/");
+        $decoded = json_decode($response);
+        $catalog_found = null;
+        for ($i = 1, $ii = count($decoded->links); $i < $ii; $i++) {
+            if (isset($decoded->links[$i]->title) && $decoded->links[$i]->title === $catalog['title']) {
+                $catalog_found = $decoded->links[$i];
+                break;
+            }
+        }
+
+        $this->assertSame($catalog_found, null, $response);
+    }
+
+    #[Group('only')]
     public function testCanCreateCatalog(): void
     {
         //Create  catalog with group right
@@ -31,7 +69,7 @@ final class CatalogsTest extends TestCase
         $decoded = json_decode($response);
         $this->assertSame($decoded->ErrorMessage, "addCatalog - Forbidden", $response);
 
-        //Create catalog without visibility under /projects with user with right to create catalog, the default visibility should be applied, in this case the user private group   
+        //Create catalog without visibility under /projects with user with right to create catalog, the default visibility should be applied, in this case the user private group
         $utils->createCatalogAPI($userHasCatalogRight, $catalogNoVisibility);
         $response = Utils::httpGet("http://" . $userHasCatalogRight . ":dummy@localhost:5252/catalogs/projects/" . $catalogNoVisibilityName);
         $decoded = json_decode($response);
@@ -45,7 +83,7 @@ final class CatalogsTest extends TestCase
         //Create catalog with default visibility, should return error because the user doesn't have the right to set default visibility
         $response = Utils::httpPost("http://" . $userHasCatalogRight . ":dummy@localhost:5252/catalogs/projects", json_encode($catalogDefaultVisibility));
         $decoded = json_decode($response);
-        $this->assertSame($decoded->ErrorMessage, "addCatalog - You are not allowed to set the visibility of the default group", $response);
+        $this->assertSame($decoded->ErrorMessage, "addCatalog - You are not allowed to change the visibility of this catalog to default", $response);
 
         //not allowed to create catalog without visibility if you don't have the right to create catalog
         $response = Utils::httpPost("http://" . $userWithoutRights . ":dummy@localhost:5252/catalogs/projects", json_encode($catalogNoVisibility));
@@ -64,7 +102,7 @@ final class CatalogsTest extends TestCase
         $catalogNoVisibility['links'] = [[
             "rel" => "child",
             "type" => "application/json",
-            "href" => "http://127.0.0.1:5252/catalogs/projects/" . $childCatalogNoVisibility['id']
+            "href" => "http://127.0.0.1:5252/catalogs/projects/" . $childCatalogNoVisibility['id'],
         ]];
         $response = Utils::httpPost("http://" . $userHasCatalogRight . ":dummy@localhost:5252/catalogs/projects/" . $catalogNoVisibility['id'], json_encode($childCatalogNoVisibility));
         $decoded = json_decode($response);
@@ -74,6 +112,8 @@ final class CatalogsTest extends TestCase
         $decoded = json_decode($response);
         $this->assertSame($decoded->links[3]->rel, "child", $response);
         $this->assertStringContainsString($childCatalogNoVisibility['id'], $decoded->links[3]->href, $response);
+        $this->assertSame($decoded->visibility, [$userHasCatalogRight . "_private"], $response);
+
     }
 
     public function testCanUpdateCatalog(): void
@@ -129,5 +169,101 @@ final class CatalogsTest extends TestCase
         $response = Utils::httpDelete("http://" . $userHasCatalogRight . ":dummy@localhost:5252/catalogs/projects/" . $catalogNoVisibility['id']);
         $decoded = json_decode($response);
         $this->assertSame($decoded->status, "success", $response);
+    }
+    public function testAdminCanPinCatalog(): void
+    {
+        $utils = new Utils();
+        $userHasCatalogRight = uniqid("userwithcatalogright");
+        $utils->createAPIUser($userHasCatalogRight);
+        $createCatalogRight = ["createCatalog" => true];
+
+        $utils->adminAddRightsToUserAPI($userHasCatalogRight, $createCatalogRight);
+        $pinnedName = uniqid("newPinnedCatalog");
+        $catalogPinned = Utils::catalog($pinnedName, []);
+        $catalogPinned['pinned'] = true;
+
+        $response = Utils::httpPost("http://" . $userHasCatalogRight . ":dummy@localhost:5252/catalogs/projects", json_encode($catalogPinned));
+        $decoded = json_decode($response);
+        $this->assertSame($decoded->ErrorCode, 403, $response);
+
+        //Admin can pin catalog
+        $response = Utils::httpPost("http://admin:admin@localhost:5252/catalogs/projects", json_encode($catalogPinned));
+        $decoded = json_decode($response);
+        $this->assertSame($decoded->status, "success", $response);
+
+        $response = Utils::httpGet("http://" . $userHasCatalogRight . ":dummy@localhost:5252/catalogs");
+        $decoded = json_decode($response);
+        $ids = [];
+        for ($i = 0; $i < count($decoded->links); $i++) {
+            if (isset($decoded->links[$i]->id)) {
+                array_push($ids, $decoded->links[$i]->id);
+            }
+        }
+        $this->assertContains("projects/" . $pinnedName, $ids, $response);
+    }
+
+    public function testAdminCanManageCatalogVisibility(): void
+    {
+        $utils = new Utils();
+        $userHasCatalogRight = uniqid("userwithcatalogright");
+        $utils->createAPIUser($userHasCatalogRight);
+        $createCatalogRight = ["createCatalog" => true];
+
+        $utils->adminAddRightsToUserAPI($userHasCatalogRight, $createCatalogRight);
+        $catalogNoVisibility = Utils::catalog(uniqid("newcatalognovisibility"), []);
+        $utils->createCatalogAPI($userHasCatalogRight, $catalogNoVisibility);
+
+        $catalogNoVisibility['visibility'] = ['default'];
+
+        //admin can change the visibility to default
+        $response = Utils::httpPut("http://admin:admin@localhost:5252/catalogs/projects/" . $catalogNoVisibility['id'], json_encode($catalogNoVisibility));
+        $decoded = json_decode($response);
+        $this->assertSame($decoded->status, "success", $response);
+
+        $catalogDefaultVisibility = Utils::catalog(uniqid("newcatalogDefaultVisibility"), ['default']);
+
+        $response = Utils::httpPost("http://admin:admin@localhost:5252/catalogs/projects", json_encode($catalogDefaultVisibility));
+        $decoded = json_decode($response);
+        $this->assertSame($decoded->status, "success", $response);
+    }
+
+    #[Group('only')]
+    public function testCanAddCollectionToCatalog(): void
+    {
+        $utils = new Utils();
+        $userHasCatalogRight = uniqid("userwithcatalogright");
+        $utils->createAPIUser($userHasCatalogRight);
+        $userWithoutRights = uniqid("userwithoutrights");
+        $utils->createAPIUser($userWithoutRights);
+        $createRight = ["createItem" => true, "createCollection" => true, "createCatalog" => true];
+        $utils->adminAddRightsToUserAPI($userHasCatalogRight, $createRight);
+
+        $collectionName = uniqid("newcollection");
+        $collectionNoVisibility = Utils::collection($collectionName, []);
+        $utils->createCollectionAPI($userHasCatalogRight, $collectionNoVisibility);
+
+        $itemDefaultVisibility = Utils::item(uniqid("newitem"), ['default']);
+
+        $response = Utils::httpPost("http://" . $userHasCatalogRight . ":dummy@localhost:5252/collections/" . $collectionName . "/items", json_encode($itemDefaultVisibility));
+        $decoded = json_decode($response);
+        $this->assertSame($decoded->status, "success", $response);
+
+        //add item to catalog
+        $catalogName = uniqid("newcatalogtoaddcollection");
+        $catalogNoVisibility = Utils::catalog($catalogName, []);
+        $utils->createCatalogAPI($userHasCatalogRight, $catalogNoVisibility);
+
+        $catalogNoVisibility['links'] = [[
+            "rel" => "child",
+            "href" => "http://127.0.0.1:5252/collections/" . $collectionName
+        ]];
+        $response = Utils::httpPut("http://" . $userHasCatalogRight . ":dummy@localhost:5252/catalogs/projects/" . $catalogName, json_encode($catalogNoVisibility));
+        $decoded = json_decode($response);
+        $this->assertSame($decoded->status, "success", $response);
+
+        $response = Utils::httpGet("http://" . $userHasCatalogRight . ":dummy@localhost:5252/catalogs/projects/" . $catalogName);
+        $decoded = json_decode($response);
+        $this->assertSame($decoded->links[3]->rel, "child", $response);
+        $this->assertStringContainsString($collectionName, $decoded->links[3]->href,  $response);
     }
 }

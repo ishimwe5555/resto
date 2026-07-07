@@ -9,34 +9,33 @@ final class GroupsTest extends TestCase
 {
     public function testCanUpdateGroupRights(): void
     {
+        $utils = new Utils();
+
         $userName = uniqid("newuser");
-        $response = Utils::httpPost("http://localhost:5252/users", json_encode(Utils::user($userName, uniqid("newUser") . "@toto.fr")));
-        $decoded = json_decode($response);
-        $this->assertSame($decoded->status, "success", $response);
+        $userId = $utils->createAPIUser($userName);
 
         $groupName = uniqid("newGroup");
-        $response = Utils::httpPost("http://" . $userName . ":dummy@localhost:5252/groups", json_encode(Utils::group($groupName)));
-        $decoded = json_decode($response);
-        $this->assertSame($decoded->status, "success", $response);
+        $utils->adminCreateAPIGroup($userId, $groupName);
 
         $unauthorizedRight = ["createCollection" => true];
         $response = Utils::httpPost("http://" . $userName . ":dummy@localhost:5252/groups/" . $groupName . "/rights", json_encode($unauthorizedRight));
         $decoded = json_decode($response);
         $this->assertSame($decoded->ErrorCode, 400, $response);
 
-        $goodRight = [RestoGroup::createItemRight($groupName) => true];
+        $createGroupItemRight = RestoGroup::createItemRight($groupName);
+        $goodRight = [$createGroupItemRight => true];
         $response = Utils::httpPost("http://" . $userName . ":dummy@localhost:5252/groups/" . $groupName . "/rights", json_encode($goodRight));
         $decoded = json_decode($response);
         $this->assertSame($decoded->status, "success", $response);
+        $this->assertObjectHasProperty($createGroupItemRight, $decoded->rights, $response);
     }
-
 
     public function testCanPlayWithGroupRightCreate(): void
     {
         $utils = new Utils();
 
         $groupOwnerUserName = uniqid("groupowner");
-        $utils->createAPIUser($groupOwnerUserName);
+        $groupOwnerId = $utils->createAPIUser($groupOwnerUserName);
 
 
         $inGroupUserName = uniqid("useringroup");
@@ -46,7 +45,7 @@ final class GroupsTest extends TestCase
         $utils->createAPIUser($randomUserName);
 
         $groupName = uniqid("itemCreationGroup");
-        $utils->createAPIGroup($groupOwnerUserName, $groupName);
+        $utils->adminCreateAPIGroup($groupOwnerId, $groupName);
 
         $utils->addUserToGroupAPI($groupOwnerUserName, $groupName, $inGroupUserName);
 
@@ -74,7 +73,7 @@ final class GroupsTest extends TestCase
         $this->assertSame($decoded->ErrorCode, 403, $response);
 
         //inGroupUser can create items in collection with group visibility
-        $response = $utils->createItemAPI($inGroupUserName, $collectionName, Utils::item(uniqid("item1"), []));
+        $utils->createItemAPI($inGroupUserName, $collectionName, Utils::item(uniqid("item1"), []));
 
         //randomUser cannot see collection if not in group with visibility
         $response = Utils::httpGet("http://" . $randomUserName . ":dummy@localhost:5252/collections/" . $collectionName);
@@ -92,7 +91,7 @@ final class GroupsTest extends TestCase
         $utils = new Utils();
 
         $groupOwnerUserName = uniqid("groupowner");
-        $utils->createAPIUser($groupOwnerUserName);
+        $groupOwnerId = $utils->createAPIUser($groupOwnerUserName);
 
         $inGroupUserName = uniqid("useringroup");
         $utils->createAPIUser($inGroupUserName);
@@ -104,9 +103,10 @@ final class GroupsTest extends TestCase
         $utils->createAPIUser($randomUserName);
 
         $groupName = uniqid("updateItemGroup");
-        $utils->createAPIGroup($groupOwnerUserName, $groupName);
+        $utils->adminCreateAPIGroup($groupOwnerId, $groupName);
+
         $secondGroupName = uniqid("updateCollectionGroup");
-        $utils->createAPIGroup($groupOwnerUserName, $secondGroupName);
+        $utils->adminCreateAPIGroup($groupOwnerId, $secondGroupName);
 
         $utils->addUserToGroupAPI($groupOwnerUserName, $groupName, $inGroupUserName);
         $utils->addUserToGroupAPI($groupOwnerUserName, $secondGroupName, $inSecondGroupUserName);
@@ -173,7 +173,7 @@ final class GroupsTest extends TestCase
         //Update item
 
         $privateItem = Utils::item(uniqid("item1"), []);
-        $response = $utils->createItemAPI($groupOwnerUserName, $collectionName, $privateItem);
+        $utils->createItemAPI($groupOwnerUserName, $collectionName, $privateItem);
 
         $privateItem['description'] = "updated item description";
 
@@ -183,7 +183,7 @@ final class GroupsTest extends TestCase
         $this->assertSame($decoded->ErrorCode, 404, $response);
 
         $inGroupItem = Utils::item(uniqid("ingroupitem1"), [$groupName]);
-        $response = $utils->createItemAPI($groupOwnerUserName, $collectionName, $inGroupItem);
+        $utils->createItemAPI($groupOwnerUserName, $collectionName, $inGroupItem);
         $inGroupItem['description'] = "in group updated item description";
 
         // User in group cannot update visibility
@@ -202,6 +202,16 @@ final class GroupsTest extends TestCase
         $response = Utils::httpPut("http://" . $inSecondGroupUserName . ":dummy@localhost:5252/collections/" . $collectionName . "/items/" . $inGroupItem['id'], json_encode($inGroupItem));
         $decoded = json_decode($response);
         $this->assertSame($decoded->ErrorCode, 404, $response);
+
+        // group owner with update right can update item visibility
+        $inGroupItem['properties']['visibility'] = [$groupName];
+        $response = Utils::httpPut("http://" . $groupOwnerUserName . ":dummy@localhost:5252/collections/" . $collectionName . "/items/" . $inGroupItem['id'], json_encode($inGroupItem));
+        $decoded = json_decode($response);
+        $this->assertSame($decoded->status, "success", $response);
+
+        $response = Utils::httpGet("http://" . $groupOwnerUserName . ":" . "dummy@localhost:5252/collections/" . $collectionName . "/items/" . $inGroupItem['id']);
+        $decoded = json_decode($response);
+        $this->assertSame($decoded->properties->visibility, $inGroupItem['properties']['visibility'], $response);
     }
 
     public function testCanPlayWithGroupRightDelete(): void
@@ -209,7 +219,7 @@ final class GroupsTest extends TestCase
         $utils = new Utils();
 
         $groupOwnerUserName = uniqid("groupowner");
-        $utils->createAPIUser($groupOwnerUserName);
+        $groupOwnerId = $utils->createAPIUser($groupOwnerUserName);
 
         $inGroupUserName = uniqid("useringroup");
         $utils->createAPIUser($inGroupUserName);
@@ -224,7 +234,9 @@ final class GroupsTest extends TestCase
             RestoGroup::createCollectionRight($groupName) => true,
             RestoGroup::deleteCollectionRight($groupName) => true,
         ];
-        $utils->createAPIGroup($groupOwnerUserName, $groupName);
+        $utils->adminCreateAPIGroup($groupOwnerId, $groupName);
+
+
         $utils->addRightToGroupAPI($groupOwnerUserName, $groupName, $groupRight);
         $utils->addUserToGroupAPI($groupOwnerUserName, $groupName, $inGroupUserName);
 
@@ -261,7 +273,7 @@ final class GroupsTest extends TestCase
     {
         $utils = new Utils();
         $groupOwnerUserName = uniqid("groupowner");
-        $utils->createAPIUser($groupOwnerUserName);
+        $groupOwnerId = $utils->createAPIUser($groupOwnerUserName);
 
         $inGroupUserName = uniqid("useringroup");
         $utils->createAPIUser($inGroupUserName);
@@ -275,7 +287,8 @@ final class GroupsTest extends TestCase
             RestoGroup::updateCatalogRight($groupName) => true,
             RestoGroup::deleteCatalogRight($groupName) => true,
         ];
-        $utils->createAPIGroup($groupOwnerUserName, $groupName);
+        $utils->adminCreateAPIGroup($groupOwnerId, $groupName);
+        
         $utils->addRightToGroupAPI($groupOwnerUserName, $groupName, $groupRight);
         $utils->addUserToGroupAPI($groupOwnerUserName, $groupName, $inGroupUserName);
 
@@ -329,15 +342,55 @@ final class GroupsTest extends TestCase
         $response = Utils::httpPost("http://" . $inGroupUserName . ":dummy@localhost:5252/catalogs/projects", json_encode($catalog));
         $decoded = json_decode($response);
         $this->assertSame($decoded->ErrorCode, 403, $response);
-
     }
 
-    //Create  catalog with group right
+    public function testAdminCanManageGroupCatalogVisibility(): void
+    {
 
-    // Update catalog with group right
-    // Delete catalog with group right
-    //Catalog test
-    //check creation outiside of 'projects' and 'users' catalogs
-    //catalog creation creates collection even without collection right?! type=collection...
+        $utils = new Utils();
+        $groupOwnerUserName = uniqid("groupowner");
+        $groupOwnerId = $utils->createAPIUser($groupOwnerUserName);
 
+        $groupName = uniqid("catalogManagementGroup");
+        $groupRight = [
+            RestoGroup::createCatalogRight($groupName) => true,
+            RestoGroup::updateCatalogRight($groupName) => true,
+            RestoGroup::deleteCatalogRight($groupName) => true,
+        ];
+        $utils->adminCreateAPIGroup($groupOwnerId, $groupName);
+
+        $utils->addRightToGroupAPI($groupOwnerUserName, $groupName, $groupRight);
+
+        //create catalog
+        $catalogId =  uniqid("catalog");
+        $catalog = Utils::catalog($catalogId, [$groupName]);
+        $response = Utils::httpPost("http://" . $groupOwnerUserName . ":dummy@localhost:5252/catalogs/projects", json_encode($catalog));
+        $decoded = json_decode($response);
+        $this->assertSame($decoded->status, "success", $response);
+
+        $catalog['visibility'] = ['default'];
+
+        //admin can change the visibility to default
+        $response = Utils::httpPut("http://admin:admin@localhost:5252/catalogs/projects/" . $catalog['id'], json_encode($catalog));
+        $decoded = json_decode($response);
+        $this->assertSame($decoded->status, "success", $response);
+
+        $catalog['visibility'] = [$groupName];
+
+        //admin can change the visibility back to group
+        $response = Utils::httpPut("http://admin:admin@localhost:5252/catalogs/projects/" . $catalog['id'], json_encode($catalog));
+        $decoded = json_decode($response);
+        $this->assertSame($decoded->status, "success", $response);
+
+
+        $response = Utils::httpGet("http://admin:admin@localhost:5252/catalogs/projects/" . $catalog['id']);
+        $decoded = json_decode($response);
+        $this->assertSame($decoded->id,  $catalog['id'], $response);
+
+        $catalogDefaultVisibility = Utils::catalog(uniqid("newcatalogDefaultVisibility"), ['default']);
+
+        $response = Utils::httpPost("http://admin:admin@localhost:5252/catalogs/projects/" . $catalog['id'], json_encode($catalogDefaultVisibility));
+        $decoded = json_decode($response);
+        $this->assertSame($decoded->status, "success", $response);
+    }
 }
