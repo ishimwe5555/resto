@@ -25,11 +25,17 @@
  *
  *  @OA\Schema(
  *      schema="InputCollection",
- *      required={"id", "description"},
+ *      required={"id", "type", "description"},
  *      @OA\Property(
  *          property="id",
  *          type="string",
  *          description="Collection identifier. It must be an unique alphanumeric string containing only [a-zA-Z0-9\-_]."
+ *      ),
+ *      @OA\Property(
+ *          property="type",
+ *          type="string",
+ *          enum={"Collection"},
+ *          description="Must be set to *Collection*."
  *      ),
  *      @OA\Property(
  *          property="title",
