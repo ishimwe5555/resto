@@ -25,7 +25,13 @@
  * 
  *  @OA\Schema(
  *      schema="Catalog",
- *      required={"id", "description", "links", "stac_version"},
+ *      required={"type", "id", "description", "links", "stac_version"},
+ *      @OA\Property(
+ *          property="type",
+ *          type="string",
+ *          enum={"Catalog"},
+ *          description="Must be set to *Catalog*."
+ *      ),
  *      @OA\Property(
  *          property="id",
  *          type="string",
