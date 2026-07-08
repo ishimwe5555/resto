@@ -192,9 +192,9 @@ class GeneralFunctions
      */
     public function visibilityNamesToIds($visibility)
     {
-       
-        if ( empty($visibility) ) {
-            throw new Exception();
+
+        if ( empty($visibility) || !is_array($visibility) ) {
+            throw new Exception('Visibility must be a non-empty array of group names', 400);
         }
 
         $ids = array();
