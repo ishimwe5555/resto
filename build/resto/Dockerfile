@@ -1,3 +1,16 @@
+FROM jjrom/doctools:2.0 AS docsbuilder
+
+WORKDIR /
+
+COPY ./app /app
+COPY ./config.env .
+COPY ./docs/constants.php /constants.php
+
+RUN mkdir -p /docs && \
+    set -a && . ./config.env && set +a && \
+    openapi --bootstrap /constants.php --format json --output /docs/resto-api.json /app && \
+    api2html -o /docs/resto-api.html /docs/resto-api.json
+
 FROM jjrom/nginx-fpm:8.3-1
 LABEL maintainer="jerome.gasperi@gmail.com"
 
@@ -45,5 +58,4 @@ RUN mkdir /var/www/static
 COPY ${BUILD_DIR}/config.php.template /tmp/config.php.template
 
 # Docs directory (for API)
-RUN mkdir -p /docs
-COPY ./docs/api/* /docs
+COPY --from=docsbuilder /docs /docs
